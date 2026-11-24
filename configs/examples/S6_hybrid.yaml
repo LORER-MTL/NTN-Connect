@@ -1,0 +1,105 @@
+# ============================================================
+# Scenario S6: Hybrid
+#   - HO decided centrally per (operator, type)
+#   - Routing decided per operator with global arbiter for inter-op
+#   - Scheduling decided per node (distributed)
+#   - Cache decided cooperatively per operator
+# ============================================================
+
+experiment: { name: S6_hybrid, random_seed: 42 }
+
+env:
+  start_utc: "2026-05-21T12:00:00Z"
+  duration_s: 3600
+  step_size_s: 60
+
+storage: { data_dir: outputs, run_id: 106 }
+
+operators:
+  - id: 1
+    name: Kuiper
+    sat_id_range: [100000, 199999]
+    radio: { carrier_freq_hz: 28.0e9, bandwidth_hz: 400.0e6, power_max_w: 10.0 }
+    isl:   { enabled: true, strategy: degree_bounded, max_degree: 4 }
+    satellites:
+      catalog_id_start: 100000
+      generate_tle: true
+      shells: [{ altitude_km: 1200, inclination_deg: 87.9, num_planes: 12, num_satellites: 72 }]
+    ground_stations:
+      - id_range: [400000, 400099]
+        positions: [{ name: GS-MTL, lat: 45.50, lon: -73.57, alt_m: 30 }]
+
+  - id: 2
+    name: Starlink
+    sat_id_range: [200000, 299999]
+    radio: { carrier_freq_hz: 12.0e9, bandwidth_hz: 250.0e6, power_max_w: 8.0 }
+    isl:   { enabled: true, strategy: degree_bounded, max_degree: 4 }
+    satellites:
+      catalog_id_start: 200000
+      generate_tle: true
+      shells: [{ altitude_km: 550, inclination_deg: 53.0, num_planes: 6, num_satellites: 36 }]
+
+users: { num_seed_users: 10, grid_method: random, min_dist_km: 50.0 }
+
+control_plane:
+  arbiter: priority_based
+  controllers:
+
+    # HO: centralized per operator
+    - id: kuiper_ho_central
+      priority: 100
+      scope: { operator_ids: [1], node_types: [satellite] }
+      visibility: own_operator
+      decisions: { handover: persistent_nearest }
+    - id: starlink_ho_central
+      priority: 100
+      scope: { operator_ids: [2], node_types: [satellite] }
+      visibility: own_operator
+      decisions: { handover: nearest_sat }
+
+    # Routing: per-operator + inter-op arbiter
+    - id: kuiper_router
+      priority: 90
+      scope: { operator_ids: [1] }
+      visibility: own_operator
+      decisions: { routing: dijkstra, isl: degree_bounded }
+    - id: starlink_router
+      priority: 90
+      scope: { operator_ids: [2] }
+      visibility: own_operator
+      decisions: { routing: dijkstra, isl: degree_bounded }
+    - id: inter_op_arbiter
+      priority: 200
+      scope: { operator_ids: [], node_types: [] }
+      visibility: global
+      decisions: { routing: dijkstra }
+
+    # Scheduling: per-node distributed
+    - id: distributed_scheduler_kuiper
+      priority: 50
+      scope: { operator_ids: [1], node_types: [satellite, ground_station] }
+      visibility: own_node
+      decisions: { scheduling: edf }
+    - id: distributed_scheduler_starlink
+      priority: 50
+      scope: { operator_ids: [2], node_types: [satellite] }
+      visibility: own_node
+      decisions: { scheduling: edf }
+
+    # Cache: cooperative per operator
+    - id: kuiper_cache_coop
+      priority: 40
+      scope: { operator_ids: [1] }
+      visibility: own_operator
+      decisions: { cache: lru }
+
+outputs:
+  format: parquet
+  formats:
+    per_user_kpis: parquet+csv
+    ho_events:     json
+  toggles:
+    per_user_kpis: true
+    ho_events:     true
+    active_isl:    true
+    per_operator_kpis: true

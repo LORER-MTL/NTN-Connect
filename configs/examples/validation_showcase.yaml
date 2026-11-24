@@ -1,0 +1,76 @@
+# ============================================================
+# Validation showcase - flip every audit table ON.
+# Run this to get the per-link inputs that drive every KPI, plus
+# per-tick pass/fail records from val_constraints.
+#   python v1/scripts/run.py --config v1/configs/examples/validation_showcase.yaml
+# ============================================================
+
+experiment: { name: validation_showcase, random_seed: 42 }
+
+env:
+  start_utc: "2026-05-21T12:00:00Z"
+  duration_s: 600                  # short run - audit tables can be large
+  step_size_s: 60
+
+storage: { data_dir: outputs, run_id: 999 }
+
+operators:
+  - id: 1
+    name: Kuiper
+    sat_id_range: [100000, 199999]
+    radio:
+      carrier_freq_hz: 28.0e9
+      bandwidth_hz: 400.0e6
+      power_max_w: 10.0
+      antenna_gain_tx_db: 38.0
+      antenna_gain_rx_db: 5.0
+      beamforming_mode: hybrid
+    channel_model: { model_type: "3GPP", scenario: Urban }
+    isl: { enabled: true, strategy: degree_bounded, max_degree: 4 }
+    satellites:
+      catalog_id_start: 100000
+      generate_tle: true
+      shells:
+        - { altitude_km: 1200, inclination_deg: 87.9, num_planes: 12, num_satellites: 72 }
+
+users: { num_seed_users: 5, grid_method: random, min_dist_km: 50.0 }
+
+handover: { mode: persistent_nearest }
+
+outputs:
+  format: parquet+csv               # write both - easy to skim CSVs
+  formats:
+    validation_checks: csv          # easiest format to grep
+    link_audit:        parquet+csv
+
+  tables:
+    per_user_kpis:     true
+    node_state:        true
+    ho_events:         true
+    active_isl:        true
+    per_operator_kpis: true
+
+    # Everything audit-related ON
+    link_audit:        true
+    power_alloc:       true
+    beamforming_audit: true
+    validation_checks: true
+
+  toggles:
+    plotting:          true
+    link_audit:        true
+    power_alloc:       true
+    beamforming_audit: true
+    validation_checks: true
+
+kpis:
+  computed:
+    - sinr_db
+    - serving_sinr_db
+    - operator_sum_rate_bps
+    - system_outage_fraction
+
+plots:
+  formats: [png]
+  charts:
+    - { name: sinr_cdf, kpi: sinr_db, type: cdf, title: "SINR CDF" }

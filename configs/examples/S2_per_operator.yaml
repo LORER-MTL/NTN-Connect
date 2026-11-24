@@ -1,0 +1,73 @@
+# ============================================================
+# Scenario S2: Per-operator NOC
+#   - one controller per operator
+#   - visibility own_operator (Kuiper does not see Starlink internals)
+#   - classical multi-tenant
+# ============================================================
+
+experiment: { name: S2_per_operator, random_seed: 42 }
+
+env:
+  start_utc: "2026-05-21T12:00:00Z"
+  duration_s: 3600
+  step_size_s: 60
+
+storage: { data_dir: outputs, run_id: 102 }
+
+operators:
+  - id: 1
+    name: Kuiper
+    sat_id_range: [100000, 199999]
+    radio: { carrier_freq_hz: 28.0e9, bandwidth_hz: 400.0e6, power_max_w: 10.0 }
+    isl:   { enabled: true, strategy: degree_bounded, max_degree: 4 }
+    satellites:
+      catalog_id_start: 100000
+      generate_tle: true
+      shells:
+        - { name: PolarLayer, altitude_km: 1200, inclination_deg: 87.9,
+            num_planes: 12, num_satellites: 72 }
+
+  - id: 2
+    name: Starlink
+    sat_id_range: [200000, 299999]
+    radio: { carrier_freq_hz: 12.0e9, bandwidth_hz: 250.0e6, power_max_w: 8.0 }
+    isl:   { enabled: true, strategy: degree_bounded, max_degree: 4 }
+    satellites:
+      catalog_id_start: 200000
+      generate_tle: true
+      shells:
+        - { name: MidLayer, altitude_km: 550, inclination_deg: 53.0,
+            num_planes: 6, num_satellites: 36 }
+
+users: { num_seed_users: 10, grid_method: random, min_dist_km: 50.0 }
+
+handover: { mode: persistent_nearest }
+
+control_plane:
+  arbiter: priority_based
+  controllers:
+    - id: kuiper_noc
+      priority: 100
+      scope: { operator_ids: [1] }              # no node_types -> all types in op 1
+      visibility: own_operator
+      decisions:
+        handover: persistent_nearest
+        isl:      degree_bounded
+        routing:  dijkstra
+        scheduling: edf
+
+    - id: starlink_noc
+      priority: 100
+      scope: { operator_ids: [2] }
+      visibility: own_operator
+      decisions:
+        handover: nearest_sat
+        isl:      degree_bounded
+        routing:  dijkstra
+        scheduling: edf
+
+outputs:
+  format: parquet
+  formats:
+    per_user_kpis: parquet+csv    # CSV easy to skim during demo
+  toggles: { per_user_kpis: true, ho_events: true, active_isl: true, per_operator_kpis: true }

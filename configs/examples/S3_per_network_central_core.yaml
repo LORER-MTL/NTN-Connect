@@ -1,0 +1,84 @@
+# ============================================================
+# Scenario S3: Per-network central core (default)
+#   - one controller per (operator, node_type) cell
+#   - each network type has its own NOC, even within an operator
+#   - inter-op decisions escalate to a top-priority arbiter
+# ============================================================
+
+experiment: { name: S3_per_network_central_core, random_seed: 42 }
+
+env:
+  start_utc: "2026-05-21T12:00:00Z"
+  duration_s: 3600
+  step_size_s: 60
+
+storage: { data_dir: outputs, run_id: 103 }
+
+operators:
+  - id: 1
+    name: Kuiper
+    sat_id_range: [100000, 199999]
+    radio: { carrier_freq_hz: 28.0e9, bandwidth_hz: 400.0e6, power_max_w: 10.0 }
+    isl:   { enabled: true, strategy: degree_bounded, max_degree: 4 }
+    satellites:
+      catalog_id_start: 100000
+      generate_tle: true
+      shells: [{ altitude_km: 1200, inclination_deg: 87.9, num_planes: 12, num_satellites: 72 }]
+    ground_stations:
+      - id_range: [400000, 400099]
+        positions: [{ name: GS-MTL, lat: 45.50, lon: -73.57, alt_m: 30 }]
+
+  - id: 6
+    name: HAPS_Operator
+    radio: { carrier_freq_hz: 2.6e9, bandwidth_hz: 80.0e6, power_max_w: 5.0 }
+    haps:
+      id_range: [200, 299]
+      mobility: hover
+      positions: [{ name: HAPS-1, lat: 50.0, lon: -100.0, alt_m: 20000 }]
+
+  - id: 5
+    name: TerrestrialMNO
+    radio: { carrier_freq_hz: 3.5e9, bandwidth_hz: 100.0e6, power_max_w: 20.0 }
+    base_stations:
+      id_range: [500000, 599999]
+      positions: [{ name: BS-Toronto, lat: 43.65, lon: -79.38, alt_m: 30 }]
+
+users: { num_seed_users: 10, grid_method: random, min_dist_km: 50.0 }
+
+control_plane:
+  arbiter: priority_based
+  controllers:
+
+    - id: kuiper_sat_noc
+      priority: 100
+      scope: { operator_ids: [1], node_types: [satellite] }
+      visibility: own_scope
+      decisions: { handover: persistent_nearest, isl: degree_bounded, routing: dijkstra }
+
+    - id: kuiper_gs_noc
+      priority: 90
+      scope: { operator_ids: [1], node_types: [ground_station] }
+      visibility: own_operator
+      decisions: { routing: dijkstra, scheduling: edf, cache: lru }
+
+    - id: haps_op_haps_noc
+      priority: 80
+      scope: { operator_ids: [6], node_types: [haps] }
+      visibility: own_scope
+      decisions: { handover: persistent_nearest, scheduling: edf }
+
+    - id: mno_bs_noc
+      priority: 70
+      scope: { operator_ids: [5], node_types: [base_station] }
+      visibility: own_operator
+      decisions: { handover: nearest_sat, scheduling: edf, cache: lru }
+
+    - id: inter_op_arbiter
+      priority: 200
+      scope: { operator_ids: [], node_types: [] }
+      visibility: global
+      decisions: { routing: dijkstra }
+
+outputs:
+  format: parquet
+  toggles: { per_user_kpis: true, ho_events: true, active_isl: true, per_operator_kpis: true }

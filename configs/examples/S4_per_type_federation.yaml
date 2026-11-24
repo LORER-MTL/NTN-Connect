@@ -1,0 +1,63 @@
+# ============================================================
+# Scenario S4: Per-type federation
+#   - one controller per node_type, visibility = global (within type)
+#   - example: all satellites worldwide share one regulator-like NOC
+#   - useful for spectrum-sharing studies
+# ============================================================
+
+experiment: { name: S4_per_type_federation, random_seed: 42 }
+
+env:
+  start_utc: "2026-05-21T12:00:00Z"
+  duration_s: 3600
+  step_size_s: 60
+
+storage: { data_dir: outputs, run_id: 104 }
+
+operators:
+  - id: 1
+    name: Kuiper
+    sat_id_range: [100000, 199999]
+    radio: { carrier_freq_hz: 28.0e9, bandwidth_hz: 400.0e6, power_max_w: 10.0 }
+    isl:   { enabled: true, strategy: degree_bounded, max_degree: 4 }
+    satellites:
+      catalog_id_start: 100000
+      generate_tle: true
+      shells: [{ altitude_km: 1200, inclination_deg: 87.9, num_planes: 12, num_satellites: 72 }]
+  - id: 2
+    name: Starlink
+    sat_id_range: [200000, 299999]
+    radio: { carrier_freq_hz: 12.0e9, bandwidth_hz: 250.0e6, power_max_w: 8.0 }
+    isl:   { enabled: true, strategy: degree_bounded, max_degree: 4 }
+    satellites:
+      catalog_id_start: 200000
+      generate_tle: true
+      shells: [{ altitude_km: 550, inclination_deg: 53.0, num_planes: 6, num_satellites: 36 }]
+  - id: 5
+    name: MNO
+    radio: { carrier_freq_hz: 3.5e9, bandwidth_hz: 100.0e6, power_max_w: 20.0 }
+    base_stations:
+      id_range: [500000, 599999]
+      positions: [{ name: BS-Toronto, lat: 43.65, lon: -79.38, alt_m: 30 }]
+
+users: { num_seed_users: 10, grid_method: random, min_dist_km: 50.0 }
+
+control_plane:
+  arbiter: priority_based
+  controllers:
+
+    - id: federated_sat_regulator
+      priority: 100
+      scope: { node_types: [satellite] }     # all operators with satellites
+      visibility: global
+      decisions: { handover: persistent_nearest, isl: degree_bounded, routing: dijkstra }
+
+    - id: federated_terrestrial
+      priority: 100
+      scope: { node_types: [base_station] }
+      visibility: global
+      decisions: { handover: nearest_sat, scheduling: edf, cache: lru }
+
+outputs:
+  format: parquet+csv
+  toggles: { per_user_kpis: true, ho_events: true, active_isl: true, per_operator_kpis: true }

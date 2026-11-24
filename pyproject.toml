@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ntnconnect"
+version = "2.0.0"
+description = "NTN-Connect: plugin/registry microkernel LEO NTN system-level simulator."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    { name = "Mohammed Almekhlafi", email = "mhdalmekhlafi@gmail.com" },
+]
+maintainers = [
+    { name = "Mohammed Almekhlafi", email = "mhdalmekhlafi@gmail.com" },
+]
+dependencies = [
+    "numpy==1.26.4",
+    "pandas==2.2.2",
+    "pyarrow>=15.0,<21.0",
+    "pyyaml>=6.0,<7.0",
+    "scipy==1.13.1",
+    "matplotlib==3.9.2",
+    "skyfield>=1.46",
+    "networkx>=3.0",
+    "cvxpy>=1.4,<2.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest==7.4.4"]
+
+# Only the engine package is importable; scenarios/ and tests/ are run by path.
+[tool.setuptools]
+packages = ["ntnconnect"]
+
+[tool.setuptools.package-data]
+ntnconnect = ["**/*.yaml", "**/*.yml", "**/*.json"]

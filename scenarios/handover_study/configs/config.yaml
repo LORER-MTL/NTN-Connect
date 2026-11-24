@@ -1,0 +1,91 @@
+# config.yaml - WISEE scenario config (make_scenario / scripts path).
+# Lists ONLY the keys that differ from the engine defaults; any key not here
+# falls back to the dataclass defaults in ntnconnect/experiment/config.py
+# (configs/master.yaml documents those defaults but is NOT merged in - the
+# loader reads THIS file only). The faithful run_final_tt study does not use
+# this YAML; it is configured in code at ../config.py (build_wisee_cfg).
+
+experiment:
+  name: wisee_oneweb_mst
+env:
+  lat_bounds:
+  - 46.0
+  - 48.0
+  lon_bounds:
+  - -72.0
+  - -70.0
+  region_name: Quebec
+storage:
+  data_dir: outputs/wisee/oneweb/mst
+operators:
+- id: 1
+  name: oneweb
+  radio:
+    carrier_freq_hz: 20000000000.0
+    power_max_w: 20.0
+  channel_model:
+    n_rx: 1
+    antenna_mode: miso
+  satellites:
+    shells:
+    - name: OneWeb
+      altitude_km: 1200.0
+      inclination_deg: 87.4
+      num_planes: 12
+      num_satellites: 48
+      phasing_factor: 1
+    propagator: sgp4_auto_tle
+users:
+  num_seed_users: 50
+handover:
+  mode: farthest_approaching
+  min_elevation_deg: 25.0
+  qos_rate_bps: 5000000.0
+constraints:
+  min_elevation_deg: 25.0            # user/UE elevation mask [deg]
+  gateway_min_elevation_deg: 10.0    # gateway/feeder elevation mask [deg]
+pipeline:
+  groups:
+  - name: setup
+    stages:
+    - control_plane
+  - name: read
+    stages:
+    - read_geometry
+    - read_users
+  - name: dimensions
+    stages:
+    - dimensions
+  - name: mobility
+    stages:
+    - mobility
+  - name: geometry
+    stages:
+    - geometry
+  - name: measurement
+    stages:
+    - measurement
+  - name: handover
+    stages:
+    - handover
+  - name: channel
+    stages:
+    - channel
+  - name: interference
+    stages:
+    - interference
+  - name: radio
+    stages:
+    - radio
+  - name: sinr
+    stages:
+    - sinr_calc
+  - name: classify
+    stages:
+    - ho_classify
+  - name: metrics
+    stages:
+    - metrics
+  - name: finalize
+    stages:
+    - finalize

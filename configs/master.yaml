@@ -1,0 +1,725 @@
+# ============================================================
+# SkyNTNPro v1 - Master configuration (SINGLE source of truth)
+#
+# This file holds EVERY tunable knob for the simulator:
+#   - Operators (formerly "constellations")
+#   - All node types (satellites, HAPS, UAVs, ground stations, base stations)
+#   - Users
+#   - Channel / radio / RRM
+#   - ISL strategy + degree cap
+#   - Handover strategy (centralized / distributed / hybrid)
+#   - Storage and compute capabilities
+#   - Workload / offload / scheduling / caching strategies
+#   - Energy model
+#   - Outputs and visualization
+#
+# Every block has sensible defaults so unused features stay inert.
+# DO NOT split into multiple YAML files. Extend this one.
+# ============================================================
+
+experiment:
+  name: baseline_multi_op_v1
+  random_seed: 42
+  notes: ""
+  # ── Single-source-of-truth rule ─────────────────────────────────────
+  # The ONLY two places a simulation parameter can come from are:
+  #   (a) this YAML file
+  #   (b) overrides written explicitly in v1/scripts/run.py BEFORE
+  #       engine.setup() is called.
+  # Nowhere else in the codebase is permitted to inject a value at run
+  # time. With strict_config: true, the engine fails fast at setup() if
+  # any required field is missing from this YAML.
+  strict_config: true
+
+# ─────────────────────────────────────────────────────────────
+# Time grid and region
+# ─────────────────────────────────────────────────────────────
+env:
+  start_utc: "2026-05-21T12:00:00Z"
+  duration_s: 3600
+  step_size_s: 60
+  lat_bounds: [49.0, 54.0]
+  lon_bounds: [-125.0, -65.0]
+  region_name: Canada
+
+# ─────────────────────────────────────────────────────────────
+# Storage layout
+# ─────────────────────────────────────────────────────────────
+storage:
+  data_dir: outputs
+  run_id: 1
+  partition_by:
+    nodes: [operator_id]              # per-node-type files, partitioned by operator
+    links: [link_type, node_type, operator_id]
+    node_state: [node_type, operator_id]
+    tasks: [tick_bucket]
+  tick_bucket_size: 1000              # # ticks per task-table partition
+  parquet_compression: zstd
+
+# ─────────────────────────────────────────────────────────────
+# Defaults inherited by every operator/constellation
+# (operator entries can override any of these)
+# ─────────────────────────────────────────────────────────────
+defaults:
+  radio:
+    carrier_freq_hz: 2.0e9
+    bandwidth_hz: 20.0e6
+    power_max_w: 10.0
+    noise_figure_db: 3.0
+    system_temperature_k: 290.0
+    antenna_gain_tx_db: 30.0
+    antenna_gain_rx_db: 5.0
+    beamforming_mode: hybrid
+
+  channel_model:
+    model_type: "3GPP"
+    scenario: Urban
+    enable_doppler: true
+    enable_multipath: true
+    enable_shadowing: true
+    enable_polarization: true
+    enable_propagation_delay: true
+    enable_atmospheric: false
+    n_rx: 4
+    n_tx_x: 8
+    n_tx_y: 8
+    num_rf_chains: 4
+    bf_eff_digital: 1.0
+    bf_eff_analog:  0.8
+    bf_eff_hybrid:  0.9
+
+  interference:
+    model: physical                   # off | fixed | physical
+    formulation: explicit
+    enable_intra_satellite_interference: true
+    enable_inter_satellite_interference: true
+    same_user_only: true
+    fixed_interference_dbw: -110.0
+    co_channel_isolation_db: 25.0
+    intra_beam_isolation_db: 30.0
+    frequency_reuse_factor: 1.0
+
+# ─────────────────────────────────────────────────────────────
+# Operators
+# Every node belongs to one operator. Each operator can declare:
+#   * its satellites, haps, uavs, ground_stations, base_stations
+#   * its own radio/channel/isl overrides
+#   * its own compute fleet (per-type compute capability)
+# ─────────────────────────────────────────────────────────────
+operators:
+
+  - id: 1
+    name: Kuiper
+    sat_id_range: [100000, 199999]
+    # Per-operator overrides on top of defaults.radio / defaults.channel_model
+    radio:
+      carrier_freq_hz: 28.0e9         # Ka-band
+      bandwidth_hz: 400.0e6
+      power_max_w: 10.0
+      antenna_gain_tx_db: 38.0
+    channel_model:
+      model_type: "3GPP"
+      scenario: Urban
+    isl:
+      enabled: true
+      strategy: degree_bounded        # none | grid | degree_bounded
+      max_degree: 4
+      max_range_km: 5500.0
+      min_grazing_alt_km: 80.0
+      require_los: true
+      cross_operator_isl_allowed: false
+
+    satellites:
+      catalog_id_start: 100000
+      generate_tle: true              # synthesize Walker from shells
+      tle_file_path: null
+      shells:
+        - name: Polar_Layer
+          altitude_km: 1200
+          inclination_deg: 87.9
+          num_planes: 12
+          num_satellites: 72
+          phasing_factor: 1
+
+    haps: []                          # this operator has no HAPS
+    uavs: []
+    base_stations: []
+
+    ground_stations:                  # gateway/feeder nodes
+      - id_range: [400000, 400099]
+        positions:
+          - { name: GS-MTL, lat: 45.50, lon: -73.57, alt_m: 30 }
+          - { name: GS-VAN, lat: 49.28, lon: -123.12, alt_m: 70 }
+
+    compute:                          # per-node-type capability for THIS operator
+      satellite:
+        cpu_cores: 4
+        cpu_clock_ghz: 2.0
+        flops_peak: 1.0e11
+        ram_gb: 8
+        storage_gb: 100
+        gpu_present: false
+        power_idle_w: 50.0
+        power_per_flop_j: 1.0e-11
+        compute_role: mec
+      ground_station:
+        cpu_cores: 64
+        cpu_clock_ghz: 3.5
+        flops_peak: 1.0e13
+        ram_gb: 512
+        storage_gb: 100000
+        gpu_present: true
+        power_idle_w: 500.0
+        power_per_flop_j: 5.0e-13
+        compute_role: both
+
+
+  - id: 2
+    name: Starlink
+    sat_id_range: [200000, 299999]
+    radio:
+      carrier_freq_hz: 12.0e9         # Ku-band
+      bandwidth_hz: 250.0e6
+      power_max_w: 8.0
+      antenna_gain_tx_db: 33.0
+    isl:
+      enabled: true
+      strategy: degree_bounded
+      max_degree: 4
+      max_range_km: 5500.0
+      min_grazing_alt_km: 80.0
+      require_los: true
+      cross_operator_isl_allowed: false
+
+    satellites:
+      catalog_id_start: 200000
+      generate_tle: false
+      tle_file_path: data/StarLink.txt
+      shells: []
+
+    haps: []
+    uavs: []
+    ground_stations: []
+    base_stations: []
+    compute:
+      satellite:
+        cpu_cores: 8
+        cpu_clock_ghz: 2.5
+        flops_peak: 5.0e11
+        ram_gb: 16
+        storage_gb: 200
+        gpu_present: true
+        power_idle_w: 80.0
+        power_per_flop_j: 8.0e-12
+        compute_role: mec
+
+
+  - id: 5
+    name: TerrestrialMNO
+    radio:
+      carrier_freq_hz: 3.5e9          # mid-band 5G
+      bandwidth_hz: 100.0e6
+      power_max_w: 20.0
+      antenna_gain_tx_db: 17.0
+    base_stations:
+      id_range: [500000, 599999]
+      positions:
+        - { name: BS-Toronto, lat: 43.65, lon: -79.38, alt_m: 30, sector_deg: 360 }
+        - { name: BS-Ottawa,  lat: 45.42, lon: -75.69, alt_m: 25, sector_deg: 360 }
+    satellites: { catalog_id_start: 0, generate_tle: false, shells: [] }
+    haps: []
+    uavs: []
+    ground_stations: []
+    compute:
+      base_station:
+        cpu_cores: 32
+        cpu_clock_ghz: 3.0
+        flops_peak: 5.0e12
+        ram_gb: 256
+        storage_gb: 50000
+        gpu_present: false
+        power_idle_w: 300.0
+        power_per_flop_j: 7.0e-13
+        compute_role: mec
+
+
+  - id: 6
+    name: HAPS_Operator
+    radio:
+      carrier_freq_hz: 2.6e9
+      bandwidth_hz: 80.0e6
+      power_max_w: 5.0
+      antenna_gain_tx_db: 25.0
+    haps:
+      id_range: [200, 299]            # globally unique HAPS ids
+      mobility: hover                 # hover | drift | waypoint
+      positions:
+        - { name: HAPS-1, lat: 47.0, lon: -90.0, alt_m: 20000 }
+        - { name: HAPS-2, lat: 51.0, lon: -105.0, alt_m: 20000 }
+    satellites: { catalog_id_start: 0, generate_tle: false, shells: [] }
+    uavs: []
+    ground_stations: []
+    base_stations: []
+    compute:
+      haps:
+        cpu_cores: 16
+        cpu_clock_ghz: 2.2
+        flops_peak: 2.0e11
+        ram_gb: 32
+        storage_gb: 500
+        gpu_present: false
+        power_idle_w: 150.0
+        power_per_flop_j: 9.0e-12
+        compute_role: both
+
+
+# ─────────────────────────────────────────────────────────────
+# Users (UEs)
+# ─────────────────────────────────────────────────────────────
+users:
+  num_seed_users: 10
+  grid_method: random                 # fibonacci | matern | h3_hex | random
+  min_dist_km: 50.0
+  land_only: true
+  enable_clustering: false
+  max_users_per_cluster: null
+
+  mobility:
+    type: static                      # static | random_waypoint | gauss_markov
+    speed_max_mps: 1.0
+    speed_min_mps: 0.0
+    alpha: 0.75
+    sigma: 5.0
+
+  preferences:                        # used by the HO strategy
+    preferred_operator_id: null       # null = no preference
+    allow_fallback: true
+    fallback_cost: 5.0
+
+# ─────────────────────────────────────────────────────────────
+# Handover strategy (one of three modes)
+# ─────────────────────────────────────────────────────────────
+handover:
+  # Centralized family (one global pass over visibility/dist/elev/rate matrices):
+  #   persistent_nearest    - STAY rule, best-entry by elevation (legacy default)
+  #   nearest_sat           - nearest visible sat with 10% hysteresis
+  #   farthest_approaching  - most-negative range rate, fallback to nearest
+  #   centralized           - generic load-balanced + operator/type penalties
+  # Distributed family:
+  #   distributed_ue        - each UE picks best from its own visible set
+  #   distributed_satellite - per-sat admission control (queue cap)
+  # Hybrid:
+  #   hybrid                - per-operator centralized + inter-op arbiter
+  mode: persistent_nearest
+  hysteresis_deg: 3.0
+  min_elevation_deg: 10.0
+  max_users_per_sat: 50
+  inter_operator_penalty: 5.0
+  inter_node_type_penalty: 3.0
+  ping_pong_window_s: 30.0
+  # Centralized-only:
+  objective: max_elev_with_load_balance   # max_elev | max_sinr | min_latency | max_elev_with_load_balance
+  # Distributed satellite-side admission control:
+  satellite_admission_cap: 50
+  top_k_local: 3
+
+# ─────────────────────────────────────────────────────────────
+# Workload / tasks
+# ─────────────────────────────────────────────────────────────
+workload:
+  enabled: false                      # turn ON to simulate compute tasks
+  arrival_model: poisson              # poisson | bursty | trace
+  arrival_rate_per_user_per_s: 0.5
+  cpu_required_flops_mean: 1.0e9
+  cpu_required_flops_std:  3.0e8
+  data_in_mb_mean: 1.0
+  data_out_mb_mean: 0.1
+  deadline_ms_mean: 300
+  deadline_ms_std:  100
+  priority_levels: [low, normal, high]
+  priority_weights: [0.3, 0.6, 0.1]
+
+# ─────────────────────────────────────────────────────────────
+# Offload / scheduling / cache strategies
+# ─────────────────────────────────────────────────────────────
+offload:
+  mode: centralized                   # centralized | distributed | hybrid
+  target_policy: nearest_compute_capable   # nearest | min_latency | min_energy | load_balanced
+  allow_cross_operator: false
+  feeder_fallback: true               # task can be routed to GS via feeder if no MEC available
+
+scheduler:
+  mode: distributed                   # one queue per node
+  policy: edf                          # fifo | srtf | edf
+  preempt: false
+  queue_capacity: 256                  # F7 - hard per-node queue cap
+
+routing:
+  mode: per_operator_hybrid           # centralized | distributed | per_operator_hybrid
+  algorithm: dijkstra                 # dijkstra | yen_k_shortest
+  k_paths: 1                          # # of paths returned by yen_k_shortest
+
+cache:
+  mode: per_node                       # disabled | per_node | per_operator | global
+  policy: lru                          # lru | lfu | fifo
+  capacity_fraction_of_storage: 0.5
+  capacity_items: 128                  # F4 - hard per-node item cap
+  populate_on_task: true               # F4 - touch cache on each task arrival
+
+# ─────────────────────────────────────────────────────────────
+# Energy model
+# ─────────────────────────────────────────────────────────────
+energy:
+  enabled: false
+  include_radio: true
+  include_compute: true
+  include_idle: true
+  battery_aware: false
+
+# ─────────────────────────────────────────────────────────────
+# Outputs
+# ─────────────────────────────────────────────────────────────
+outputs:
+  # Default format for every output table.
+  format: parquet                # parquet | csv | json | jsonl | parquet+csv
+
+  # Per-table format override (table name -> format).
+  # Table names are declared in v1/ntnconnect/schemas/tables.py
+  formats:
+    # per_user_kpis: csv
+    # ho_events:    json
+    # active_isl:   parquet+csv
+
+  # Activate/deactivate output TABLES (preferred knob).
+  # Names must match a TableSchema in v1/ntnconnect/schemas/tables.py.
+  tables:
+    # Main outputs
+    per_user_kpis:     true
+    node_state:        true
+    tasks:             false      # turn ON when workload.enabled = true
+    ho_events:         true
+    active_isl:        true
+    per_operator_kpis: true
+    routes:            false      # not produced yet (routing stage pending)
+
+    # Audit / validation outputs (default OFF - they can be large).
+    # Turn ON for validation runs so a reviewer can recompute KPIs by hand.
+
+    # Radio side
+    link_audit:        false      # per (user, candidate_node) per tick
+    power_alloc:       false      # per node per tick
+    beamforming_audit: false      # per serving link per tick
+    rb_allocation:     false      # per (user, serving node) per tick - RB grid + MCS
+    beam_budget:       false      # per (node, beam) per tick
+    spectrum_usage:    false      # per operator per tick
+
+    # Compute side
+    compute_resource:  false      # per node per tick - CPU/RAM/storage/energy
+    task_audit:        false      # per task lifetime
+    cache_audit:       false      # per node per tick
+
+    # Cheap; default ON
+    validation_checks: true       # per-tick automated invariants
+
+  # Activate/deactivate HOOKS (use when a hook isn't a 1:1 table,
+  # e.g. plotting renders multiple charts from many KPI tables).
+  # Which hooks run (formerly `toggles`). A hook is a read-only observer: after
+  # every tick it reads the shared `state` the stages produced and writes an
+  # output file, without changing the simulation. Unlisted hooks default to ON.
+  # All 25 hooks listed explicitly (no reliance on the default-ON rule).
+  hooks:
+    # --- Handover ---------------------------------------------------------------
+    ho_events:            true   # every handover (tick, user, old->new sat, type); reads assignments, ho_classified
+    handover_events_log:  true   # detailed per-tick handover diff; reads assignments, prev_assign_snapshot, links
+    scn_ho_counter:       true   # per-scenario handover tally; reads assignments
+    # --- Per-user / per-operator KPIs ------------------------------------------
+    per_user_kpis:        true   # per-user per-tick KPIs (SINR, rate, blocking); reads assignments, ho_classified, links
+    per_operator_kpis:    true   # KPIs rolled up per operator; reads the per-user results
+    user_trace:           true   # per-user time-series trace at end of run
+    users_per_tick:       true   # active users (with cluster_id) per tick; reads users_t
+    node_state:           true   # each node's state over time; reads node_state_now
+    # --- Visibility / links -----------------------------------------------------
+    visibility_log:       true   # visible links + SINR snapshot per tick; reads assignments, links, users_t
+    link_visibility_log:  true   # remaining visibility per (user, sat); reads links
+    active_isl:           true   # active inter-satellite links per tick; reads isl_active
+    # --- Scenario / validation / plots -----------------------------------------
+    scenario_snapshot:    true   # static scenario map at end of run; reads assignments, links
+    validation_checks:    true   # per-tick automated invariants; reads validation_rows
+    plotting:             true   # render charts at end of run; reads the accumulated output tables
+    # --- Radio / spectrum audits (OFF; turn ON for validation runs) ------------
+    link_audit:           false  # per-link radio-quantity audit; reads assignments, links
+    power_alloc:          false  # transmit-power allocation audit; reads assignments, links
+    beamforming_audit:    false  # beamforming computation audit; reads assignments, links
+    rb_allocation:        false  # resource-block allocation per user/beam; reads assignments, links
+    beam_budget:          false  # beam power/resource budget usage; reads assignments, links
+    spectrum_usage:       false  # spectrum used per tick; reads assignments, links
+    scn_beam_log:         false  # (user, beam_id) per tick when beam-tagged; reads assignments, beam_assignments
+    # --- Compute / offloading side (OFF for handover studies) ------------------
+    tasks:                false  # compute-task events; reads task_events (ON when workload.enabled)
+    compute_resource:     false  # compute-resource usage on nodes; reads node_state_now
+    task_audit:           false  # per-tick task-processing audit; reads task_events
+    cache_audit:          false  # cache state/behavior; reads cache_state
+
+  simulation_results_csv: true
+  snapshot_png: true
+  gif:
+    enabled: true
+    frame_duration_ms: 500
+    keep_frames: false
+
+# ─────────────────────────────────────────────────────────────
+# Visualization
+# ─────────────────────────────────────────────────────────────
+viz:
+  enable_live_hud: true
+  global_view: true
+  margin_deg: 0.0
+  link_alpha: 0.8
+  max_users_to_viz: 10
+  dpi: 100
+  orbit_sampling_step_s: 60
+  per_operator_colors:
+    1: "#3aa1ff"
+    2: "#ff5e3a"
+    5: "#7c4dff"
+    6: "#ffd23a"
+
+# ─────────────────────────────────────────────────────────────
+# Constraints (legacy compatibility + global limits)
+# ─────────────────────────────────────────────────────────────
+constraints:
+  min_elevation_deg: 10
+  rate_threshold_bps_hz: 1.5
+  geometry:
+    active_engine: skyfield
+    enable_culling: true
+    interpolation_step_s: null
+    satellite_mode: visible_over_duration
+
+# ─────────────────────────────────────────────────────────────
+# Phase-2 pipeline
+#   groups[i] runs after groups[i-1].
+#   Within a group, stages run in parallel if parallel=true,
+#   else sequentially. The engine validates parallel safety
+#   (declared reads/writes) at setup.
+# ─────────────────────────────────────────────────────────────
+pipeline:
+  groups:
+    - name: setup_controllers
+      parallel: false
+      stages: [build_control_plane]    # builds Controller instances + per-controller RNGs
+
+    - name: read
+      parallel: true
+      max_workers: 3
+      stages: [read_geometry, read_node_state_prev, read_users]
+
+    - name: write_dims_once
+      parallel: false
+      stages: [write_dims]              # populates time/operators/nodes/users/ho_type dims; no-op after tick 0
+
+    - name: mobility
+      parallel: false
+      stages: [mob_update_users, mob_update_aerial]
+
+    - name: geometry
+      parallel: false
+      stages: [link_geometry]
+
+    - name: isl_per_operator
+      parallel: true
+      max_workers: 8
+      stages: [isl]                  # internally fans out per operator
+
+    - name: topology
+      parallel: true
+      stages: [topo_feeder, topo_backhaul]
+
+    - name: channel_per_operator
+      parallel: false      # channel mutates `links`; bf+power_control depend
+                            # on serving assignments and run after handover
+      stages: [channel]
+
+    - name: range_rate
+      parallel: false
+      stages: [geo_range_rate]
+
+    - name: interference
+      parallel: false
+      stages: [interference]
+
+    - name: handover
+      parallel: false
+      stages: [handover, acc_admission]
+
+    - name: post_ho_radio
+      parallel: false      # both need cfg.assignments; both mutate links
+      stages: [chan_beamforming, chan_power_control]
+
+    - name: rrm
+      parallel: false
+      stages: [rrm_mcs, rrm_allocate_rb]
+
+    - name: routing
+      parallel: false
+      stages: [net_build_graph, net_route_isl, net_route_e2e, net_load_balance]
+
+    - name: compute
+      parallel: false
+      stages: [workload, offload, scheduling, cache, work_execute]
+
+    - name: telemetry
+      parallel: false                  # node_state, state_energy share node_state_now
+      stages: [node_state, state_energy, rrm, state_link]
+
+    - name: classify
+      parallel: false
+      stages: [ho_classify]
+
+    - name: kpis
+      parallel: false
+      stages: [metrics]                  # compute selected KPIs each tick
+
+    - name: validation
+      parallel: false
+      stages: [val_constraints]          # automated invariant checks per tick
+
+    - name: post_run
+      parallel: false
+      stages: [post_aggregate, post_report, post_persist]   # run only on the LAST tick
+
+# ─────────────────────────────────────────────────────────────
+# Control plane (Phase-2 decision ownership)
+#
+# A scenario = a list of controllers. Each controller owns:
+#   scope        - which nodes it controls
+#   visibility   - what state it can read (own_node / own_scope /
+#                  own_operator / peers / global)
+#   decisions    - which strategy class it runs per domain
+#   priority     - tie-breaker for cross-controller arbitration
+#
+# In v1 the control plane lives ONLY on the network side. UEs are
+# passive sensors and traffic sources.
+# Future-work tag: V2_PASSIVE_TO_ACTIVE_UE
+#   - new node_type "ue" allowed as scope
+#   - new decision domain "ue_access_selection"
+#   - per-UE RNG seed
+#
+# Canonical scenarios reachable with this single block:
+#   S1 fully centralized: one controller, scope omitted, visibility global
+#   S2 per-operator NOC: one controller per operator, visibility own_operator
+#   S3 per-network central core (this default): one per (operator, type)
+#   S4 per-type federation: one per node_type across operators
+#   S5 fully distributed: many controllers, each scope = single node
+#   S6 mixed: any combination of the above
+# ─────────────────────────────────────────────────────────────
+control_plane:
+  arbiter: priority_based            # priority_based | first_wins | none
+
+  controllers:
+
+    - id: kuiper_sat_noc
+      priority: 100
+      scope: { operator_ids: [1], node_types: [satellite] }
+      visibility: own_scope
+      decisions:
+        handover: persistent_nearest
+        isl:      degree_bounded
+        routing:  dijkstra
+
+    - id: kuiper_gs_noc
+      priority: 90
+      scope: { operator_ids: [1], node_types: [ground_station] }
+      visibility: own_operator
+      decisions:
+        routing:    dijkstra
+        scheduling: edf
+        cache:      lru
+
+    - id: starlink_sat_noc
+      priority: 100
+      scope: { operator_ids: [2], node_types: [satellite] }
+      visibility: own_scope
+      decisions:
+        handover: nearest_sat
+        isl:      degree_bounded
+        routing:  dijkstra
+
+    - id: haps_op_haps_noc
+      priority: 80
+      scope: { operator_ids: [6], node_types: [haps] }
+      visibility: own_scope
+      decisions:
+        handover:   persistent_nearest
+        scheduling: edf
+
+    - id: mno_bs_noc
+      priority: 70
+      scope: { operator_ids: [5], node_types: [base_station] }
+      visibility: own_operator
+      decisions:
+        handover:   nearest_sat
+        scheduling: edf
+        cache:      lru
+
+    # Inter-operator arbiter (global scope, highest priority for cross-op routing)
+    - id: inter_op_arbiter
+      priority: 200
+      scope: { operator_ids: [], node_types: [] }   # empty = wildcard
+      visibility: global
+      decisions:
+        routing: dijkstra
+
+# ─────────────────────────────────────────────────────────────
+# KPIs
+# Empty list = compute every registered KPI.
+# Otherwise, pick the names you want from:
+#   per_link:     snr_db, sinr_db, spectral_efficiency_bps_hz, link_rate_bps,
+#                 path_loss_db, doppler_hz
+#   per_user:     serving_sinr_db, serving_elev_deg, num_visible_nodes, is_in_outage
+#   per_operator: operator_mean_sinr_db, operator_sum_rate_bps,
+#                 operator_n_links, operator_n_users_served
+#   per_tick:     n_isl_active, isl_degree_distribution, handover_count_per_tick,
+#                 inter_operator_ho_fraction, n_tasks_generated, n_tasks_running,
+#                 n_tasks_dropped, system_sum_rate_bps, system_mean_sinr_db,
+#                 system_outage_fraction
+# ─────────────────────────────────────────────────────────────
+kpis:
+  computed:
+    - snr_db
+    - sinr_db
+    - spectral_efficiency_bps_hz
+    - serving_sinr_db
+    - num_visible_nodes
+    - is_in_outage
+    - operator_mean_sinr_db
+    - operator_sum_rate_bps
+    - operator_n_users_served
+    - n_isl_active
+    - isl_degree_distribution
+    - handover_count_per_tick
+    - inter_operator_ho_fraction
+    - system_outage_fraction
+    - system_mean_sinr_db
+
+# ─────────────────────────────────────────────────────────────
+# Plots
+# Each chart picks a KPI by name, a plot type, and optional knobs.
+# Plot types: line | bar | cdf | hist | heatmap | scatter | network_graph
+# Output formats: png, pdf, svg (any combination)
+# ─────────────────────────────────────────────────────────────
+plots:
+  formats: [png, pdf]
+  output_dir: plots
+
+  charts:
+    - { name: sinr_cdf,            kpi: sinr_db,                 type: cdf,    title: "Per-link SINR CDF" }
+    - { name: sinr_cdf_by_op,      kpi: sinr_db,                 type: cdf,    group: operator_id, title: "SINR CDF by operator" }
+    - { name: serving_sinr_time,   kpi: serving_sinr_db,         type: line,   x: t_idx, group: user_id, title: "Serving SINR over time" }
+    - { name: outage_time,         kpi: system_outage_fraction,  type: line,   x: t_idx, y: system_outage_fraction, title: "System outage fraction" }
+    - { name: sum_rate_by_op,      kpi: operator_sum_rate_bps,   type: bar,    group_by: operator_id, y: operator_sum_rate_bps, agg: mean, title: "Mean operator sum-rate" }
+    - { name: ho_per_tick,         kpi: handover_count_per_tick, type: bar,    group_by: t_idx, y: handover_count_per_tick, agg: sum, title: "Handovers per tick" }
+    - { name: inter_op_ho,         kpi: inter_operator_ho_fraction, type: line, x: t_idx, y: inter_operator_ho_fraction, title: "Inter-operator HO fraction" }
+    - { name: isl_active_time,     kpi: n_isl_active,            type: line,   x: t_idx, y: n_isl_active, title: "Active ISLs over time" }
+    - { name: isl_degree_hist,     kpi: isl_degree_distribution, type: hist,   y: isl_degree, bins: 12, title: "ISL degree distribution" }
+    - { name: doppler_hist,        kpi: doppler_hz,              type: hist,   y: doppler_hz, bins: 40, title: "Doppler shift histogram" }

@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite the paper below."
+title: "NTN-Connect: a system-level simulator for LEO non-terrestrial networks"
+authors:
+  - family-names: "Almekhlafi"
+    given-names: "Mohammed"
+    email: "mhdalmekhlafi@gmail.com"
+preferred-citation:
+  type: article
+  title: "Risk-Aware Handover Management Approach for Non-Terrestrial Networks with the NTN-Connect Simulator"
+  authors:
+    - family-names: "Almekhlafi"
+      given-names: "Mohammed"
+      email: "mhdalmekhlafi@gmail.com"
+    - family-names: "Lesage-Landry"
+      given-names: "Antoine"
+    - family-names: "Karabulut Kurt"
+      given-names: "Gunes"
+  year: 2026
+  journal: "arXiv preprint"
+  identifiers:
+    - type: other
+      value: "arXiv:2611.21027"
+      description: "arXiv identifier"
+  url: "https://arxiv.org/abs/2611.21027"

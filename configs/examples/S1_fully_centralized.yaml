@@ -1,0 +1,77 @@
+# ============================================================
+# Scenario S1: Fully centralized
+#   - one global controller sees everything and decides everything
+#   - upper-bound benchmark: best possible decisions, no realism
+# ============================================================
+
+experiment: { name: S1_fully_centralized, random_seed: 42 }
+
+env:
+  start_utc: "2026-05-21T12:00:00Z"
+  duration_s: 3600
+  step_size_s: 60
+  lat_bounds: [49.0, 54.0]
+  lon_bounds: [-125.0, -65.0]
+
+storage: { data_dir: outputs, run_id: 101 }
+
+operators:
+  - id: 1
+    name: Kuiper
+    sat_id_range: [100000, 199999]
+    radio: { carrier_freq_hz: 28.0e9, bandwidth_hz: 400.0e6, power_max_w: 10.0,
+             antenna_gain_tx_db: 38.0 }
+    isl: { enabled: true, strategy: degree_bounded, max_degree: 4,
+           max_range_km: 5500.0, min_grazing_alt_km: 80.0 }
+    satellites:
+      catalog_id_start: 100000
+      generate_tle: true
+      shells:
+        - { name: PolarLayer, altitude_km: 1200, inclination_deg: 87.9,
+            num_planes: 12, num_satellites: 72, phasing_factor: 1 }
+    ground_stations:
+      - id_range: [400000, 400099]
+        positions:
+          - { name: GS-MTL, lat: 45.50, lon: -73.57, alt_m: 30 }
+
+users:
+  num_seed_users: 10
+  grid_method: random
+  min_dist_km: 50.0
+
+handover: { mode: persistent_nearest, hysteresis_deg: 3.0, min_elevation_deg: 10.0 }
+
+control_plane:
+  arbiter: priority_based
+  controllers:
+    - id: global_controller
+      priority: 1000
+      scope: { operator_ids: [], node_types: [] }   # empty = wildcard
+      visibility: global
+      decisions:
+        handover: persistent_nearest
+        isl:      degree_bounded
+        routing:  dijkstra
+        offload:  load_balanced
+        scheduling: edf
+        cache:    lru
+
+outputs:
+  format: parquet+csv             # produce BOTH formats automatically
+  toggles:
+    per_user_kpis: true
+    ho_events:     true
+    active_isl:    true
+    per_operator_kpis: true
+
+pipeline:
+  groups:
+    - { name: setup_controllers, parallel: false, stages: [build_control_plane] }
+    - { name: read,              parallel: true,  stages: [read_geometry, read_node_state_prev] }
+    - { name: geometry,          parallel: false, stages: [link_geometry] }
+    - { name: isl,               parallel: false, stages: [isl] }
+    - { name: channel,           parallel: false, stages: [channel] }
+    - { name: interference,      parallel: false, stages: [interference] }
+    - { name: handover,          parallel: false, stages: [handover] }
+    - { name: telemetry,         parallel: true,  stages: [node_state, rrm] }
+    - { name: classify,          parallel: false, stages: [ho_classify] }

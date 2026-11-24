@@ -1,0 +1,124 @@
+# ============================================================
+# Plotting showcase
+#   Demonstrates every plot type (line, bar, cdf, hist, heatmap,
+#   scatter, network_graph) wired to the right KPI.
+#   Use as a template - change KPI/plot type combinations as needed.
+# ============================================================
+
+experiment: { name: plotting_showcase, random_seed: 42 }
+
+env:
+  start_utc: "2026-05-21T12:00:00Z"
+  duration_s: 1800
+  step_size_s: 60
+
+storage: { data_dir: outputs, run_id: 901 }
+
+operators:
+  - id: 1
+    name: Kuiper
+    sat_id_range: [100000, 199999]
+    radio: { carrier_freq_hz: 28.0e9, bandwidth_hz: 400.0e6, power_max_w: 10.0 }
+    channel_model: { model_type: "3GPP", scenario: Urban }
+    isl: { enabled: true, strategy: degree_bounded, max_degree: 4 }
+    satellites:
+      catalog_id_start: 100000
+      generate_tle: true
+      shells:
+        - { altitude_km: 1200, inclination_deg: 87.9, num_planes: 12, num_satellites: 72 }
+  - id: 2
+    name: Starlink
+    sat_id_range: [200000, 299999]
+    radio: { carrier_freq_hz: 12.0e9, bandwidth_hz: 250.0e6, power_max_w: 8.0 }
+    channel_model: { model_type: "Loo", scenario: Urban }       # different model
+    isl: { enabled: true, strategy: degree_bounded, max_degree: 4 }
+    satellites:
+      catalog_id_start: 200000
+      generate_tle: true
+      shells:
+        - { altitude_km: 550, inclination_deg: 53.0, num_planes: 6, num_satellites: 36 }
+
+users: { num_seed_users: 30, grid_method: random, min_dist_km: 50.0 }
+
+handover: { mode: persistent_nearest }
+
+outputs:
+  format: parquet
+  formats:
+    per_user_kpis: parquet+csv
+  toggles:
+    per_user_kpis: true
+    ho_events:     true
+    active_isl:    true
+    per_operator_kpis: true
+    plotting:      true
+
+kpis:
+  computed:
+    - sinr_db
+    - serving_sinr_db
+    - serving_elev_deg
+    - operator_sum_rate_bps
+    - operator_n_users_served
+    - n_isl_active
+    - isl_degree_distribution
+    - handover_count_per_tick
+    - inter_operator_ho_fraction
+    - system_outage_fraction
+    - doppler_hz
+
+plots:
+  formats: [png, pdf, svg]
+  output_dir: plots
+  charts:
+    # LINE
+    - { name: outage_time,            kpi: system_outage_fraction,
+        type: line, x: t_idx, y: system_outage_fraction,
+        title: "System outage fraction over time" }
+    - { name: isl_active_time,        kpi: n_isl_active,
+        type: line, x: t_idx, y: n_isl_active,
+        title: "Active ISLs over time" }
+    - { name: serving_sinr_by_user,   kpi: serving_sinr_db,
+        type: line, x: t_idx, y: serving_sinr_db, group: user_id,
+        title: "Serving SINR (one line per user)" }
+
+    # BAR
+    - { name: mean_sum_rate_by_op,    kpi: operator_sum_rate_bps,
+        type: bar, group_by: operator_id, y: operator_sum_rate_bps, agg: mean,
+        title: "Mean operator sum-rate" }
+    - { name: ho_total_per_op,        kpi: handover_count_per_tick,
+        type: bar, group_by: t_idx, y: handover_count_per_tick, agg: sum,
+        title: "Handovers per tick (sum)" }
+
+    # CDF
+    - { name: sinr_cdf_all,           kpi: sinr_db, type: cdf, y: sinr_db,
+        title: "Per-link SINR CDF (all operators)" }
+    - { name: sinr_cdf_by_op,         kpi: sinr_db, type: cdf, y: sinr_db,
+        group: operator_id,
+        title: "Per-link SINR CDF, by operator" }
+
+    # HISTOGRAM
+    - { name: doppler_hist,           kpi: doppler_hz, type: hist,
+        y: doppler_hz, bins: 50,
+        title: "Doppler shift histogram" }
+    - { name: elev_hist,              kpi: serving_elev_deg, type: hist,
+        y: serving_elev_deg, bins: 20,
+        title: "Serving elevation histogram" }
+    - { name: isl_degree_hist,        kpi: isl_degree_distribution, type: hist,
+        y: isl_degree, bins: 12,
+        title: "ISL degree per satellite" }
+
+    # HEATMAP
+    - { name: sinr_heatmap,           kpi: serving_sinr_db, type: heatmap,
+        x: t_idx, y: user_id, value: serving_sinr_db, agg: mean,
+        title: "Serving SINR heatmap (user x time)" }
+
+    # SCATTER
+    - { name: sinr_vs_elev,           kpi: serving_sinr_db, type: scatter,
+        x: t_idx, y: serving_sinr_db, color: user_id,
+        title: "Serving SINR scatter" }
+
+    # NETWORK GRAPH
+    - { name: topology_snapshot,      kpi: n_isl_active, type: line,
+        x: t_idx, y: n_isl_active,
+        title: "(network_graph needs active_isl table from hook)" }
